@@ -1,0 +1,813 @@
+/*
+ * Copyright (c) 2006-2024, RT-Thread Development Team
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Change Logs:
+ * Date           Author       Notes
+ * 2024-05-15     RT-Thread    first version
+ */
+
+#include <rtthread.h>
+
+#define DBG_TAG "main"
+#define DBG_LVL DBG_LOG
+#include <rtdbg.h>
+#include <msh.h>
+#include "board.h"
+
+#include <stdlib.h>
+#include<posix/stdlib.h>
+#include "stdio.h"
+#include "paho_mqtt.h"
+#include "serial.h"
+#include "crc16.h"
+#include "fal.h"
+#include "easyflash.h"
+int uart3init(void);
+int uart4init(void);
+#define LED_PIN_G GET_PIN(C,13)
+//震动传感器
+uint8_t x_speed1;
+uint8_t x_speed2;
+uint8_t y_speed1;
+uint8_t y_speed2;
+uint8_t z_speed1;
+uint8_t z_speed2;
+uint8_t x_acceleration1;
+uint8_t x_acceleration2;
+uint8_t y_acceleration1;
+uint8_t y_acceleration2;
+uint8_t z_acceleration1;
+uint8_t z_acceleration2;
+uint8_t x_kurtosis1;
+uint8_t x_kurtosis2;
+uint8_t y_kurtosis1;
+uint8_t y_kurtosis2;
+uint8_t z_kurtosis1;
+uint8_t z_kurtosis2;
+uint8_t devicetemp1;
+uint8_t devicetemp2;
+//JTH—2D1温湿度变送器
+uint8_t temp1;
+uint8_t temp2;
+uint8_t humi1;
+uint8_t humi2;
+//电流传感器
+uint8_t frequency1;
+uint8_t frequency2;
+uint8_t current_harmonics1;
+uint8_t current_harmonics2;
+uint8_t current1;
+uint8_t current2;
+uint8_t voltage1;
+uint8_t voltage2;
+
+rt_size_t len = 0;
+rt_size_t len4 = 0;
+rt_size_t rx_len = 0;
+rt_size_t rx_len4 = 0;
+rt_mailbox_t data;
+char databuffer[256];
+rt_device_t u3_dev;
+rt_device_t u4_dev;
+rt_thread_t u3_th;
+rt_thread_t u4_th;
+rt_thread_t modbus_sendcmd;
+rt_thread_t screen_sendcmd;
+rt_thread_t cloud_publish;
+rt_thread_t data_handling;
+rt_thread_t threshold_judgment;
+struct rt_semaphore sem;
+struct rt_semaphore sem1;
+struct rt_semaphore sem2;
+struct serial_configure u3_configs = RT_SERIAL_CONFIG_9600;
+struct serial_configure u4_configs = RT_SERIAL_CONFIG_9600 ;
+//阈值
+//uint32_t i_boot_times = NULL;
+uint8_t c_old_boot_times, c_new_boot_times[11] = {0};
+uint32_t x_speed_threshold;
+uint32_t y_speed_threshold;
+uint32_t z_speed_threshold;
+uint32_t x_acceleration_threshold;
+uint32_t y_acceleration_threshold;
+uint32_t z_acceleration_threshold;
+uint32_t x_kurtosis_threshold;
+uint32_t y_kurtosis_threshold;
+uint32_t z_kurtosis_threshold;
+uint32_t frequency_threshold;
+uint32_t current_harmonics_threshold;
+uint32_t current_threshold;
+uint32_t voltage_threshold;
+uint32_t devicetemp_threshold;
+
+rt_err_t rx3_callback(rt_device_t u3_dev, rt_size_t size)
+{
+    rx_len =size;
+    rt_sem_release(&sem);
+    return RT_EOK;
+}
+
+rt_err_t rx4_callback(rt_device_t u4_dev, rt_size_t size)
+{
+    rx_len4 =size;
+    rt_sem_release(&sem1);
+    return RT_EOK;
+}
+
+void cloud_publish_entry(void *parameter)
+{
+    char sendbuffer[1024]={0};
+    while(1)
+    {
+   // snprintf(sendbuffer,sizeof(sendbuffer),"mqtt_publish /sys/k01ps5LTTA2/Device_01/thing/event/property/post {\"method\":\"thing.service.property.set\",\"id\":\"1323398394\",\"params\":{\"temperature\":%d.%d},\"version\":\"1.0.0\"}",temp1,temp2);
+   // msh_exec(sendbuffer, strlen(sendbuffer));
+  //  rt_thread_mdelay(500);
+                                                                                             //    {"method":"thing.service.property.set","id":"2096246647","params":{"temperature":15,"humidity":15},"version":"1.0.0"}
+//    snprintf(sendbuffer,sizeof(sendbuffer),"mqtt_publish /sys/k01ps5LTTA2/Device_01/thing/event/property/post {\"method\":\"thing.service.property.set\",\"id\":\"1323398394\",\"params\":{\"temperature\":%d.%d,\"humidity\":%d.%d},\"version\":\"1.0.0\"}",temp1,temp2,humi1,humi2);
+//    msh_exec(sendbuffer, strlen(sendbuffer));
+
+    snprintf(sendbuffer,sizeof(sendbuffer),"mqtt_publish /sys/k01ps5LTTA2/Device_01/thing/event/property/post {\"method\":\"thing.service.property.set\",\"id\":\"1725757755\",\"params\":{\"y_ac\":%d.%d,\"z_v\":%d.%d,\"y_v\":%d.%d,\"E_temperature\":%d.%d,\"y_k\":%d.%d,\"x_k\":%d.%d,\"z_k\":%d.%d,\"x_ac\":%d.%d,\"x_v\":%d.%d,\"z_ac\":%d.%d},\"version\":\"1.0.0\"}"
+                                                                                                              ,y_acceleration1,y_acceleration2,z_speed1,z_speed2,y_speed1,y_speed2,devicetemp1,devicetemp2,y_kurtosis1,y_kurtosis2,x_kurtosis1,x_kurtosis2,z_kurtosis1,z_kurtosis2,x_acceleration1,x_acceleration2,x_speed1,x_speed2,z_acceleration1,z_acceleration1);
+    msh_exec(sendbuffer, strlen(sendbuffer));
+    memset(sendbuffer,0,sizeof(sendbuffer));
+
+    snprintf(sendbuffer,sizeof(sendbuffer),"mqtt_publish /sys/k01ps5LTTA2/Device_01/thing/event/property/post {\"method\":\"thing.service.property.set\",\"id\":\"678805154\",\"params\":{\"L_f\":%d.%d,\"Ch\":%d.%d,\"E_c\":%d.%d,\"E_v\":%d.%d\"temperature\":%d.%d,\"humidity\":%d.%d},\"version\":\"1.0.0\"}"
+                                                                                                              ,frequency1,frequency2,current_harmonics1,current_harmonics2,current1,current2,voltage1,voltage2,temp1,temp2,humi1,humi2);
+    msh_exec(sendbuffer, strlen(sendbuffer));
+    memset(sendbuffer,0,sizeof(sendbuffer));
+    rt_thread_mdelay(500);
+    }
+}
+
+void serial3_thread_entry(void *parameter)
+{
+  //rt_ubase_t recv;
+  char buffer[1024];
+  int High;
+  int Low;
+  int i=0;
+  u16 crc16_rst;
+ while (1)
+ {
+     rt_sem_take(&sem,RT_WAITING_FOREVER);
+     len = rt_device_read(u3_dev,0,&buffer,rx_len);
+     crc16_rst=crc_cal_value(&buffer,len-2);
+     High=(crc16_rst>>8)&0xFF;
+     Low =crc16_rst&0xFF;
+        if(High==buffer[len-1] && Low==buffer[len-2])
+        {
+            switch(buffer[0])
+            {
+            case 0x01:
+              i=i+1;
+              x_speed1=((buffer[3]<< 8)|buffer[4])/100;
+              x_speed2=((buffer[3]<< 8)|buffer[4])%100;
+              rt_kprintf(" %d x_speed:%d.%d\r\n",i,x_speed1,x_speed2);
+              y_speed1=((buffer[5]<< 8)|buffer[6])/100;
+              y_speed2=((buffer[5]<< 8)|buffer[6])%100;
+              rt_kprintf(" %d y_speed:%d.%d\r\n",i,y_speed1,y_speed2);
+              z_speed1=((buffer[7]<< 8)|buffer[8])/100;
+              z_speed2=((buffer[7]<< 8)|buffer[8])%100;
+              rt_kprintf(" %d z_speed:%d.%d\r\n",i,z_speed1,z_speed2);
+              devicetemp1=((buffer[9]<< 8)|buffer[10])/100;
+              devicetemp2=((buffer[9]<< 8)|buffer[10])%100;
+              rt_kprintf(" %d devicetemp:%d.%d\r\n",i,devicetemp1,devicetemp2);
+              x_acceleration1=((buffer[11]<< 8)|buffer[12])/100;
+              x_acceleration2=((buffer[11]<< 8)|buffer[12])%100;
+              rt_kprintf(" %d x_acceleration:%d.%d\r\n",i,x_acceleration1,x_acceleration2);
+              y_acceleration1=((buffer[13]<< 8)|buffer[14])/100;
+              y_acceleration2=((buffer[13]<< 8)|buffer[14])%100;
+              rt_kprintf(" %d y_acceleration:%d.%d\r\n",i,y_acceleration1,y_acceleration2);
+              z_acceleration1=((buffer[15]<< 8)|buffer[16])/100;
+              z_acceleration2=((buffer[15]<< 8)|buffer[16])%100;
+              rt_kprintf(" %d z_acceleration:%d.%d\r\n",i,z_acceleration1,z_acceleration2);
+              x_kurtosis1=((buffer[23]<< 8)|buffer[24])/100;
+              x_kurtosis2=((buffer[23]<< 8)|buffer[24])%100;
+              rt_kprintf(" %d x_kurtosis:%d.%d\r\n",i,x_kurtosis1,x_kurtosis2);
+              y_kurtosis1=((buffer[31]<< 8)|buffer[32])/100;
+              y_kurtosis2=((buffer[31]<< 8)|buffer[32])%100;
+              rt_kprintf(" %d y_kurtosis:%d.%d\r\n",i,y_kurtosis1,y_kurtosis2);
+              z_kurtosis1=((buffer[39]<< 8)|buffer[40])/100;
+              z_kurtosis2=((buffer[39]<< 8)|buffer[40])%100;
+              rt_kprintf(" %d z_kurtosis:%d.%d\r\n",i,z_kurtosis1,z_kurtosis2);
+            case 0x02:
+                if(buffer[2]==0x02)
+                {
+              i=i+1;
+              current_harmonics1=((buffer[3]<< 8)|buffer[4])/100;
+              current_harmonics2=((buffer[3]<< 8)|buffer[4])%100;
+              rt_kprintf(" %d current_harmonics:%d.%d\r\n",i,current_harmonics1,current_harmonics2);
+                }
+                if(buffer[2]==0x18)
+                {
+              i=i+1;
+              voltage1=((buffer[3]<< 8)|buffer[4])/100;
+              voltage2=((buffer[3]<< 8)|buffer[4])%100;
+              rt_kprintf(" %d voltage:%d.%d\r\n",i,voltage1,voltage2);
+              current1=((buffer[7]<< 8)|buffer[8])/1000;
+              current2=((buffer[7]<< 8)|buffer[8])%1000;
+              rt_kprintf(" %d current:%d.%d\r\n",i,current1,current2);
+              frequency1=((buffer[25]<< 8)|buffer[26])/100;
+              frequency2=((buffer[25]<< 8)|buffer[26])%100;
+              rt_kprintf(" %d frequency:%d.%d\r\n",i,frequency1,frequency2);
+                }
+//                if(buffer[2]==0x03)
+//                {
+//              frequency1=((buffer[3]<< 8)|buffer[4])/100;
+//              frequency2=((buffer[3]<< 8)|buffer[4])%100;
+//              rt_kprintf(" %d frequency:%d.%d\r\n",i,current1,current2);
+//                }
+              break;
+            case 0x03:
+//              if(buffer[3]=0xFF)
+//              {
+//
+//              }
+              i=i+1;
+              temp1=((buffer[3]<< 8)|buffer[4])/10;
+              temp2=((buffer[3]<< 8)|buffer[4])%10;
+              rt_kprintf(" %d temp:%d.%d\r\n",i,temp1,temp2);
+              humi1=((buffer[5]<< 8)|buffer[6])/10;
+              humi2=((buffer[5]<< 8)|buffer[6])%10;
+              rt_kprintf(" %d humi:%d.%d\r\n",i,humi1,humi1);
+              break;
+            default:
+              break;
+            }
+        rt_sem_release(&sem2);//释放信号量给阈值判断线程
+        }
+        rt_thread_mdelay(100);
+ }
+
+}
+void serial4_thread_entry(void *parameter)
+{
+    char buffer[70];
+    char *buffer2;
+    char bufferA[4]= {0};
+    char bufferB[4]= {0};
+    char bufferC[4]= {0};
+    char bufferD[4]= {0};
+    char bufferE[4]= {0};
+    char bufferF[4]= {0};
+    char bufferG[4]= {0};
+    char bufferH[4]= {0};
+    char bufferI[4]= {0};
+    char bufferJ[4]= {0};
+    char bufferK[4]= {0};
+    char bufferL[4]= {0};
+    char bufferM[4]= {0};
+    char bufferN[4]= {0};
+    int i;
+    while(1)
+    {
+    rt_sem_take(&sem1,RT_WAITING_FOREVER);
+    len4 = rt_device_read(u4_dev,0,&buffer,rx_len4);
+    //串口屏将以A0123B3210B001.....的字母+固定四位数字的形式下发阈值
+    for(i=0;i<sizeof(buffer);i++)
+    {
+     switch(buffer[i])
+     {
+     case 'A': x_speed_threshold=strtol(&buffer[i+1], &buffer2,10); /*将B前的四位数字提取出来*/       itoa(x_speed_threshold,bufferA,10);/*转换回字符串*/            ef_set_env("x_speed_threshold_env", bufferA); ef_save_env();/*设置并保存阈值*/   rt_kprintf("uart4get A:%d \r\n",x_speed_threshold); break;/*调试串口回显*/
+     case 'B': y_speed_threshold=strtol(&buffer[i+1], &buffer2,10);        itoa(y_speed_threshold,bufferB,10);           ef_set_env("y_speed_threshold_env", bufferB); ef_save_env();  rt_kprintf("uart4get B:%d \r\n",y_speed_threshold); break;
+     case 'C': z_speed_threshold=strtol(&buffer[i+1], &buffer2,10);        itoa(z_speed_threshold,bufferC,10);           ef_set_env("z_speed_threshold_env", bufferC); ef_save_env();  rt_kprintf("uart4get C:%d \r\n",z_speed_threshold); break;
+     case 'D': x_acceleration_threshold=strtol(&buffer[i+1], &buffer2,10); itoa(x_acceleration_threshold,bufferD,10);    ef_set_env("x_acceleration_threshold_env", bufferD); ef_save_env();  rt_kprintf("uart4get D:%d \r\n",x_acceleration_threshold); break;
+     case 'E': y_acceleration_threshold=strtol(&buffer[i+1], &buffer2,10); itoa(y_acceleration_threshold,bufferE,10);    ef_set_env("y_acceleration_threshold_env", bufferE); ef_save_env();  rt_kprintf("uart4get E:%d \r\n",y_acceleration_threshold); break;
+     case 'F': z_acceleration_threshold=strtol(&buffer[i+1], &buffer2,10); itoa(z_acceleration_threshold,bufferF,10);    ef_set_env("z_acceleration_threshold_env", bufferF); ef_save_env();  rt_kprintf("uart4get F:%d \r\n",z_acceleration_threshold);break;
+     case 'G': x_kurtosis_threshold=strtol(&buffer[i+1], &buffer2,10);     itoa(x_kurtosis_threshold,bufferG,10);        ef_set_env("x_kurtosis_threshold_env", bufferG); ef_save_env();  rt_kprintf("uart4get G:%d \r\n",x_kurtosis_threshold); break;
+     case 'H': y_kurtosis_threshold=strtol(&buffer[i+1], &buffer2,10);     itoa(y_kurtosis_threshold,bufferH,10);        ef_set_env("y_kurtosis_threshold_env", bufferH); ef_save_env();  rt_kprintf("uart4get H:%d \r\n",y_kurtosis_threshold); break;
+     case 'I': z_kurtosis_threshold=strtol(&buffer[i+1], &buffer2,10);     itoa(z_kurtosis_threshold,bufferI,10);        ef_set_env("z_kurtosis_threshold_env", bufferI); ef_save_env();  rt_kprintf("uart4get I:%d \r\n",z_kurtosis_threshold); break;
+     case 'J': devicetemp_threshold=strtol(&buffer[i+1], &buffer2,10);     itoa(devicetemp_threshold,bufferJ,10);        ef_set_env("devicetemp_threshold_env", bufferK); ef_save_env();  rt_kprintf("uart4get J:%d \r\n",devicetemp_threshold); break;
+     case 'K': frequency_threshold=strtol(&buffer[i+1], &buffer2,10);      itoa(frequency_threshold,bufferK,10);         ef_set_env("frequency_threshold_env", bufferJ); ef_save_env();   rt_kprintf("uart4get K:%d \r\n",frequency_threshold); break;
+     case 'L': voltage_threshold=strtol(&buffer[i+1], &buffer2,10);      itoa(voltage_threshold,bufferL,10);         ef_set_env("voltage_threshold", bufferJ); ef_save_env();   rt_kprintf("uart4get L:%d \r\n",voltage_threshold); break;
+     case 'M': current_threshold=strtol(&buffer[i+1], &buffer2,10);      itoa(current_threshold,bufferM,10);         ef_set_env("current_threshold", bufferJ); ef_save_env();   rt_kprintf("uart4get M:%d \r\n",current_threshold); break;
+     case 'N': current_harmonics_threshold=strtol(&buffer[i+1], &buffer2,10);      itoa(current_harmonics_threshold,bufferN,10);         ef_set_env("current_harmonics_threshold", bufferJ); ef_save_env();   rt_kprintf("uart4get N:%d \r\n",current_harmonics_threshold); break;
+
+
+
+//     case 'A': x_speed_threshold=strtol(&buffer[i+1], &buffer2,10);        sprintf(buffer3,sizeof(buffer3),"%d",x_speed_threshold);        ef_set_env("x_speed_threshold", buffer3); ef_save_env();break;
+//     case 'B': y_speed_threshold=strtol(&buffer[i+1], &buffer2,10);        sprintf(buffer3,sizeof(buffer3),"%d",y_speed_threshold);        ef_set_env("y_speed_threshold", buffer3); ef_save_env(); break;
+//     case 'C': z_speed_threshold=strtol(&buffer[i+1], &buffer2,10);        sprintf(buffer3,sizeof(buffer3),"%d",z_speed_threshold);       ef_set_env("z_speed_threshold", buffer3); ef_save_env(); break;
+//     case 'D': x_acceleration_threshold=strtol(&buffer[i+1], &buffer2,10); sprintf(buffer3,sizeof(buffer3),"%d",x_acceleration_threshold); ef_set_env("x_acceleration_threshold", buffer3); ef_save_env(); break;
+//     case 'E': y_acceleration_threshold=strtol(&buffer[i+1], &buffer2,10); sprintf(buffer3,sizeof(buffer3),"%d",y_acceleration_threshold); ef_set_env("y_acceleration_threshold", buffer3); ef_save_env(); break;
+//     case 'F': z_acceleration_threshold=strtol(&buffer[i+1], &buffer2,10); sprintf(buffer3,sizeof(buffer3),"%d",z_acceleration_threshold); ef_set_env("z_acceleration_threshold", buffer3); ef_save_env(); break;
+//     case 'G': x_kurtosis_threshold=strtol(&buffer[i+1], &buffer2,10);     sprintf(buffer3,sizeof(buffer3),"%d",x_kurtosis_threshold);     ef_set_env("x_kurtosis_threshold", buffer3); ef_save_env(); break;
+//     case 'H': y_kurtosis_threshold=strtol(&buffer[i+1], &buffer2,10);     sprintf(buffer3,sizeof(buffer3),"%d",y_kurtosis_threshold);     ef_set_env("y_kurtosis_threshold", buffer3); ef_save_env(); break;
+//     case 'I': z_kurtosis_threshold=strtol(&buffer[i+1], &buffer2,10);     sprintf(buffer3,sizeof(buffer3),"%d",z_kurtosis_threshold);     ef_set_env("z_kurtosis_threshold", buffer3); ef_save_env(); break;
+//     case 'J': frequency_threshold=strtol(&buffer[i+1], &buffer2,10);      sprintf(buffer3,sizeof(buffer3),"%d",frequency_threshold);      ef_set_env("frequency_threshold", buffer3); ef_save_env(); break;
+//     case 'K': devicetemp_threshold=strtol(&buffer[i+1], &buffer2,10);     sprintf(buffer3,sizeof(buffer3),"%d",devicetemp_threshold);     ef_set_env("devicetemp_threshold", buffer3); ef_save_env(); break;
+     default: break;
+//     case 'L': strtol(buffer, &buffer2); break;
+//     case 'M': strtol(buffer, &buffer2); break;
+
+//     uint8_t x_speed_threshold;
+//     uint8_t y_speed_threshold;
+//     uint8_t z_speed_threshold;
+//     uint8_t x_acceleration_threshold;
+//     uint8_t y_acceleration_threshold;
+//     uint8_t z_acceleration_threshold;
+//     uint8_t x_kurtosis_threshold;
+//     uint8_t y_kurtosis_threshold;
+//     uint8_t z_kurtosis_threshold;
+//     uint8_t frequency_threshold;
+//     uint8_t devicetemp_threshold;
+     }
+
+    }
+    memset(buffer,0,sizeof(buffer));
+    rt_thread_mdelay(100);
+    }
+}
+void send_data_entry(void *parameter)
+{
+      char screencmd[1024];
+      while (1)
+      {
+        //记录展示
+        snprintf(screencmd,sizeof(screencmd),"t1.txt=\"%d.%d\"\xff\xff\xfft2.txt=\"%d.%d\"\xff\xff\xfft3.txt=\"%d.%d\"\xff\xff\xfft4.txt=\"%d.%d\"\xff\xff\xfft5.txt=\"%d.%d\"\xff\xff\xfft6.txt=\"%d.%d\"\xff\xff\xff"
+        ,x_speed1,x_speed2,y_speed1,y_speed2,z_speed1,z_speed2,x_acceleration1,x_acceleration2,y_acceleration1,y_acceleration2,z_acceleration1,z_acceleration2);
+        rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+        snprintf(screencmd,sizeof(screencmd),"t7.txt=\"%d.%d\"\xff\xff\xfft8.txt=\"%d.%d\"\xff\xff\xfft9.txt=\"%d.%d\"\xff\xff\xfft10.txt=\"%d.%d\"\xff\xff\xfft11.txt=\"%d.%d\"\xff\xff\xfft12.txt=\"%d.%d\"\xff\xff\xfft13.txt=\"%d.%d\"\xff\xff\xfft14.txt=\"%d.%d\"\xff\xff\xfft15.txt=\"%d\"\xff\xff\xfft16.txt=\"%d\"\xff\xff\xff"
+        ,x_kurtosis1,x_kurtosis2,y_kurtosis1,y_kurtosis2,z_kurtosis1,z_kurtosis2,devicetemp1,devicetemp2,frequency1,frequency2,voltage1,voltage2,current1,current2,current_harmonics1,current_harmonics2,temp1,humi1);
+        rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+//      snprintf(screencmd,sizeof(screencmd),"t1.txt=\"%d.%d\"\xff\xff\xff",x_speed1,x_speed2);
+//      rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+//      snprintf(screencmd,sizeof(screencmd),"t2.txt=\"%d.%d\"\xff\xff\xff",y_speed1,y_speed2);
+//      rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+//      snprintf(screencmd,sizeof(screencmd),"t3.txt=\"%d.%d\"\xff\xff\xff",z_speed1,z_speed2);
+//      rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+//      snprintf(screencmd,sizeof(screencmd),"t4.txt=\"%d.%d\"\xff\xff\xff",x_acceleration1,x_acceleration2);
+//      rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+//      snprintf(screencmd,sizeof(screencmd),"t5.txt=\"%d.%d\"\xff\xff\xff",y_acceleration1,y_acceleration2);
+//      rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+//      snprintf(screencmd,sizeof(screencmd),"t6.txt=\"%d.%d\"\xff\xff\xff",z_acceleration1,z_acceleration2);
+//      rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+//      snprintf(screencmd,sizeof(screencmd),"t7.txt=\"%d.%d\"\xff\xff\xff",x_kurtosis1,x_kurtosis2);
+//      rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+//      snprintf(screencmd,sizeof(screencmd),"t8.txt=\"%d.%d\"\xff\xff\xff",y_kurtosis1,y_kurtosis2);
+//      rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+//      snprintf(screencmd,sizeof(screencmd),"t9.txt=\"%d.%d\"\xff\xff\xff",z_kurtosis1,z_kurtosis2);
+//      rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+//      snprintf(screencmd,sizeof(screencmd),"t13.txt=\"%d.%d\"\xff\xff\xff",devicetemp1,devicetemp2);
+//      rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+//        memset(screencmd,0,sizeof(screencmd));
+      //曲线展示
+        memset(screencmd,0,sizeof(screencmd));
+//        snprintf(screencmd,sizeof(screencmd),"add 0.id,0,%d\xff\xff\xffadd s0.id,1,%d\xff\xff\xffadd s0.id,2,%d\xff\xff\xffadd s1.id,0,%d\xff\xff\xffadd\x20s1.id,1,%d\xff\xff\xffadd\x20s1.id,2,%d\xff\xff\xffadd\x20s2.id,0,%d\xff\xff\xffadd\x20s2.id,1,%d\xff\xff\xffadd\x20s2.id,2,%d\xff\xff\xff"
+//                ,x_speed1,y_speed1,z_speed1,x_acceleration1,y_acceleration1,z_acceleration1,x_kurtosis1,y_kurtosis1,z_kurtosis1);
+//        rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+        snprintf(screencmd,sizeof(screencmd),"add s0.id,0,%d\xff\xff\xff",x_speed1);
+        rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+        snprintf(screencmd,sizeof(screencmd),"add s0.id,1,%d\xff\xff\xff",y_speed1);
+        rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+        snprintf(screencmd,sizeof(screencmd),"add s0.id,2,%d\xff\xff\xff",z_speed1);
+        rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+        snprintf(screencmd,sizeof(screencmd),"add s1.id,0,%d\xff\xff\xff",x_acceleration1);
+        rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+        snprintf(screencmd,sizeof(screencmd),"add s1.id,1,%d\xff\xff\xff",y_acceleration1);
+        rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+        snprintf(screencmd,sizeof(screencmd),"add s1.id,2,%d\xff\xff\xff",z_acceleration1);
+        rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+        snprintf(screencmd,sizeof(screencmd),"add s2.id,0,%d\xff\xff\xff",x_kurtosis1);
+        rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+        snprintf(screencmd,sizeof(screencmd),"add s2.id,1,%d\xff\xff\xff",y_kurtosis1);
+        rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+        snprintf(screencmd,sizeof(screencmd),"add s2.id,2,%d\xff\xff\xff",z_kurtosis1);
+        rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+        snprintf(screencmd,sizeof(screencmd),"add s4.id,0,%d\xff\xff\xff",frequency1);
+        rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+        snprintf(screencmd,sizeof(screencmd),"add s4.id,1,%d\xff\xff\xff",current_harmonics1);
+        rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+        memset(screencmd,0,sizeof(screencmd));
+//      snprintf(screencmd,sizeof(screencmd),"add s0.id,0,%d\xff\xff\xff",x_speed1);
+//      rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+//      snprintf(screencmd,sizeof(screencmd),"add s0.id,1,%d\xff\xff\xff",y_speed1);
+//      rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+//      snprintf(screencmd,sizeof(screencmd),"add s0.id,2,%d\xff\xff\xff",z_speed1);
+//      rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+//      snprintf(screencmd,sizeof(screencmd),"add s1.id,0,%d\xff\xff\xff",x_acceleration1);
+//      rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+//      snprintf(screencmd,sizeof(screencmd),"add s1.id,1,%d\xff\xff\xff",y_acceleration1);
+//      rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+//      snprintf(screencmd,sizeof(screencmd),"add s1.id,2,%d\xff\xff\xff",z_acceleration1);
+//      rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+//      snprintf(screencmd,sizeof(screencmd),"add s2.id,0,%d\xff\xff\xff",x_kurtosis1);
+//      rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+//      snprintf(screencmd,sizeof(screencmd),"add s2.id,1,%d\xff\xff\xff",y_kurtosis1);
+//      rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+//      snprintf(screencmd,sizeof(screencmd),"add s2.id,2,%d\xff\xff\xff",z_kurtosis1);
+//      rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+      rt_thread_mdelay(300);
+      }
+}
+void threshold_judgment_entry(void *parameter)
+{
+    char *A,*B,*C,*D,*E,*F,*G,*H,*I,*J,*K,*L,*M,*N;
+    //获取储存在内部flash中的阈值
+     A = ef_get_env("x_speed_threshold_env");
+     x_speed_threshold = atol(A);
+     B = ef_get_env("y_speed_threshold_env");
+     y_speed_threshold = atol(B);
+     C = ef_get_env("z_speed_threshold_env");
+     z_speed_threshold = atol(C);
+     D = ef_get_env("x_acceleration_threshold_env");
+     x_acceleration_threshold = atol(D);
+     E = ef_get_env("y_acceleration_threshold_env");
+     y_acceleration_threshold = atol(E);
+     F = ef_get_env("z_acceleration_threshold_env");
+     z_acceleration_threshold = atol(F);
+     G = ef_get_env("x_kurtosis_threshold_env");
+     x_kurtosis_threshold = atol(G);
+     H = ef_get_env("y_kurtosis_threshold_env");
+     y_kurtosis_threshold = atol(H);
+     I = ef_get_env("z_kurtosis_threshold_env");
+     z_kurtosis_threshold = atol(I);
+     J = ef_get_env("devicetemp_threshold_env");
+     devicetemp_threshold = atol(J);
+     K = ef_get_env("frequency_threshold_env");
+     frequency_threshold = atol(K);
+     L = ef_get_env("voltage_threshold");
+     voltage_threshold = atol(L);
+     M = ef_get_env("current_threshold");
+     current_threshold = atol(M);
+     N = ef_get_env("current_harmonics_threshold");
+     current_harmonics_threshold = atol(N);
+    int a=0,b=0,c=0,d=0,e=0,f=0,g=0,h=0,i=0,j=0,k=0,l=0,m=0,n=0;
+    char screencmd[1024];
+    int x=0;
+    snprintf(screencmd,sizeof(screencmd),"tA.txt=\"%d\"\xff\xff\xfftB.txt=\"%d\"\xff\xff\xfftC.txt=\"%d\"\xff\xff\xfftD.txt=\"%d\"\xff\xff\xfftE.txt=\"%d\"\xff\xff\xfftF.txt=\"%d\"\xff\xff\xfftG.txt=\"%d\"\xff\xff\xfftH.txt=\"%d\"\xff\xff\xfftI.txt=\"%d\"\xff\xff\xfftJ.txt=\"%d\"\xff\xff\xfftK.txt=\"%d\"\xff\xff\xfftL.txt=\"%d\"\xff\xff\xfftM.txt=\"%d\"\xff\xff\xfftN.txt=\"%d\"\xff\xff\xff"
+    ,x_speed_threshold,y_speed_threshold,z_speed_threshold,x_acceleration_threshold,y_acceleration_threshold,z_acceleration_threshold,x_kurtosis_threshold,y_kurtosis_threshold,z_kurtosis_threshold,devicetemp_threshold,frequency_threshold,voltage_threshold,current_threshold,current_harmonics_threshold);
+    rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+    memset(screencmd,0,sizeof(screencmd));
+     rt_kprintf("x_speed_threshold_env:%d \r\n",x_speed_threshold);
+     rt_kprintf("y_speed_threshold_env:%d \r\n",y_speed_threshold);
+     rt_kprintf("z_speed_threshold_env:%d \r\n",z_speed_threshold);
+     rt_kprintf("x_acceleration_threshold_env:%d \r\n",x_acceleration_threshold);
+     rt_kprintf("y_acceleration_threshold_env:%d \r\n",y_acceleration_threshold);
+     rt_kprintf("z_acceleration_threshold_env:%d \r\n",z_acceleration_threshold);
+     rt_kprintf("x_kurtosis_threshold_env:%d \r\n",x_kurtosis_threshold);
+     rt_kprintf("y_kurtosis_threshold_env:%d \r\n",y_kurtosis_threshold);
+     rt_kprintf("z_kurtosis_threshold_env:%d \r\n",z_kurtosis_threshold);
+     rt_kprintf("devicetemp_threshold_env:%d \r\n",devicetemp_threshold);
+     rt_kprintf("frequency_threshold_env:%d \r\n",frequency_threshold);
+     rt_kprintf("voltage_threshold:%d \r\n",voltage_threshold);
+     rt_kprintf("current_threshold:%d \r\n",current_threshold);
+     rt_kprintf("current_harmonics_threshold:%d \r\n",current_harmonics_threshold);
+     while(1)
+     {
+         rt_sem_take(&sem2,RT_WAITING_FOREVER);//信号量到来后开始阈值判断
+         if(x_speed1>=x_speed_threshold)
+         {
+          a=a+1;
+          snprintf(screencmd,sizeof(screencmd),"ta.txt=\"%d\"\xff\xff\xff",a);
+          rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+         }
+         if(y_speed1>=y_speed_threshold)
+         {
+             b=b+1;
+             snprintf(screencmd,sizeof(screencmd),"tb.txt=\"%d\"\xff\xff\xff",b);
+             rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+         }
+         if(z_speed1>=z_speed_threshold)
+         {
+             c=c+1;
+             snprintf(screencmd,sizeof(screencmd),"tc.txt=\"%d\"\xff\xff\xff",c);
+             rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+         }
+         if(x_acceleration1>=x_acceleration_threshold)
+         {
+             d=d+1;
+             snprintf(screencmd,sizeof(screencmd),"td.txt=\"%d\"\xff\xff\xff",d);
+             rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+         }
+         if(y_acceleration1>=y_acceleration_threshold)
+         {
+             e=e+1;
+             snprintf(screencmd,sizeof(screencmd),"te.txt=\"%d\"\xff\xff\xff",e);
+             rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+         }
+         if(z_acceleration1>=z_acceleration_threshold)
+         {
+             f=f+1;
+             snprintf(screencmd,sizeof(screencmd),"tf.txt=\"%d\"\xff\xff\xff",f);
+             rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+         }
+         if(x_kurtosis1>=x_kurtosis_threshold)
+         {
+             g=g+1;
+             snprintf(screencmd,sizeof(screencmd),"tg.txt=\"%d\"\xff\xff\xff",g);
+             rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+         }
+         if(y_kurtosis1>=y_kurtosis_threshold)
+         {
+             h=h+1;
+             snprintf(screencmd,sizeof(screencmd),"th.txt=\"%d\"\xff\xff\xff",h);
+             rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+         }
+         if(z_kurtosis1>=z_kurtosis_threshold)
+         {
+             i=i+1;
+             snprintf(screencmd,sizeof(screencmd),"ti.txt=\"%d\"\xff\xff\xff",i);
+             rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+         }
+         if(devicetemp1>=devicetemp_threshold)
+         {
+             j=j+1;
+             snprintf(screencmd,sizeof(screencmd),"tj.txt=\"%d\"\xff\xff\xff",j);
+             rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+             if(x<7)
+             {//address.w1.txt="电机速度运行异常"+t0.txt
+             x=x+1;
+             snprintf(screencmd,sizeof(screencmd),"address.w%d.txt=\"设备温度异常\"+t0.txt\xff\xff\xff",x);
+             rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+             }
+             else
+             {
+             x=1;
+             snprintf(screencmd,sizeof(screencmd),"address.w%d.txt=\"设备温度异常\"+t0.txt\xff\xff\xff",x);
+             rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+         }
+         }
+         if(frequency1>=frequency_threshold)
+         {
+             k=k+1;
+             snprintf(screencmd,sizeof(screencmd),"tk.txt=\"%d\"\xff\xff\xff",k);
+             rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+             if(x<7)
+             {//address.w1.txt="电机速度运行异常"+t0.txt
+             x=x+1;
+             snprintf(screencmd,sizeof(screencmd),"address.w%d.txt=\"设备温度异常\"+t0.txt\xff\xff\xff",x);
+             rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+             }
+             else
+             {
+             x=1;
+             snprintf(screencmd,sizeof(screencmd),"address.w%d.txt=\"设备温度异常\"+t0.txt\xff\xff\xff",x);
+             rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+         }
+         }
+         if(voltage1>=voltage_threshold)
+         {
+             l=l+1;
+             snprintf(screencmd,sizeof(screencmd),"tl.txt=\"%d\"\xff\xff\xff",l);
+             rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+             if(x<7)
+             {//address.w1.txt="电机速度运行异常"+t0.txt
+             x=x+1;
+             snprintf(screencmd,sizeof(screencmd),"address.w%d.txt=\"设备温度异常\"+t0.txt\xff\xff\xff",x);
+             rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+             }
+             else
+             {
+             x=1;
+             snprintf(screencmd,sizeof(screencmd),"address.w%d.txt=\"交流电压异常\"+t0.txt\xff\xff\xff",x);
+             rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+         }
+         }
+         if(current1>=current_threshold)
+         {
+             m=m+1;
+             snprintf(screencmd,sizeof(screencmd),"tm.txt=\"%d\"\xff\xff\xff",m);
+             rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+         }
+         if(current_harmonics1>=current_harmonics_threshold)
+         {
+             n=n+1;
+             snprintf(screencmd,sizeof(screencmd),"tn.txt=\"%d\"\xff\xff\xff",n);
+             rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+         }
+
+         if(current1>=current_threshold||current_harmonics1>=current_harmonics_threshold)
+         {
+             if(x<7)
+             {//address.w1.txt="电机速度运行异常"+t0.txt
+             x=x+1;
+             snprintf(screencmd,sizeof(screencmd),"address.w%d.txt=\"设备电流异常\"+t0.txt\xff\xff\xff",x);
+             rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+             }
+             else
+             {
+             x=1;
+             snprintf(screencmd,sizeof(screencmd),"address.w%d.txt=\"设备电流异常\"+t0.txt\xff\xff\xff",x);
+             rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+         }
+         }
+
+         if(x_speed1>=x_speed_threshold||y_speed1>=y_speed_threshold||z_speed1>=z_speed_threshold)
+         {
+             if(x<7)
+             {//address.w1.txt="电机速度运行异常"+t0.txt
+             x=x+1;
+             snprintf(screencmd,sizeof(screencmd),"address.w%d.txt=\"设备速度异常\"+t0.txt\xff\xff\xff",x);
+             rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+             }
+             else
+             {
+             x=1;
+             snprintf(screencmd,sizeof(screencmd),"address.w%d.txt=\"设备速度异常\"+t0.txt\xff\xff\xff",x);
+             rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+         }
+         }
+         if(x_acceleration1>=x_acceleration_threshold||y_acceleration1>=y_acceleration_threshold||z_acceleration1>=z_acceleration_threshold)
+         {
+             if(x<7)
+             {//address.w1.txt="电机速度运行异常"+t0.txt
+             x=x+1;
+             snprintf(screencmd,sizeof(screencmd),"address.w%d.txt=\"设备加速度异常\"+t0.txt\xff\xff\xff",x);
+             rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+             }
+             else
+             {
+             x=1;
+             snprintf(screencmd,sizeof(screencmd),"address.w%d.txt=\"设备加速度异常\"+t0.txt\xff\xff\xff",x);
+             rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+         }
+         }
+         if(x_kurtosis1>=x_kurtosis_threshold||y_kurtosis1>=y_kurtosis_threshold||z_kurtosis1>=z_kurtosis_threshold)
+         {
+             if(x<7)
+             {//address.w1.txt="电机速度运行异常"+t0.txt
+             x=x+1;
+             snprintf(screencmd,sizeof(screencmd),"address.w%d.txt=\"设备峭度异常\"+t0.txt\xff\xff\xff",x);
+             rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+             }
+             else
+             {
+             x=1;
+             snprintf(screencmd,sizeof(screencmd),"address.w%d.txt=\"设备峭度异常\"+t0.txt\xff\xff\xff",x);
+             rt_device_write(u4_dev, 0,screencmd,strlen(screencmd));
+         }
+         }
+         }
+//       c_old_boot_times = ef_get_env("boot_times");
+//       i_boot_times = atol(c_old_boot_times);
+//      while(1)
+//      {
+//      rt_thread_mdelay(1000);
+//      i_boot_times++;
+//      rt_kprintf(" i=%d",i_boot_times);
+//      sprintf(c_new_boot_times, "%d", i_boot_times);
+//       ef_set_env("boot_times", c_new_boot_times);
+//       ef_save_env();
+//      }
+}
+//void read_data_entry(void *parameter)
+//{
+//    char getdatacmd[8]={0x03,0x03,0x03,0x00,0x00,0x02,0xC5,0xAD};
+//    char getdatacmd2[8]={0x01,0x03,0x00,0x00,0x00,0x16,0xC4,0x04};
+//    while(1)
+//    {
+//    rt_device_write(u3_dev, 0, getdatacmd, sizeof(getdatacmd));
+//    rt_thread_mdelay(100);
+//    rt_device_write(u3_dev, 0, getdatacmd2, sizeof(getdatacmd2));
+//    rt_thread_mdelay(100);
+//    }
+//}
+
+int main(void)
+{
+    char *cmd = "mqtt_start";
+    msh_exec("mqtt_start", strlen(cmd));
+    fal_init();
+    easyflash_init();
+    uart3init();
+    uart4init();
+    rt_sem_init(&sem2,"rt_sem2",0,RT_IPC_FLAG_FIFO);
+    rt_pin_write(LED_PIN_G, PIN_LOW);
+        u3_th =rt_thread_create("u3_recv",serial3_thread_entry, NULL, 4096, 10, 60);
+        if (u3_th != RT_NULL)
+                   {
+                       rt_thread_startup(u3_th);
+                   }
+
+        u4_th =rt_thread_create("u4_recv",serial4_thread_entry, NULL, 1024, 9, 60);
+        if (u4_th != RT_NULL)
+                   {
+                       rt_thread_startup(u4_th);
+                   }
+
+       screen_sendcmd =rt_thread_create("screen",send_data_entry, NULL, 4096,16,50);
+       if (screen_sendcmd != RT_NULL)
+                  {
+                      rt_thread_startup(screen_sendcmd);
+                  }
+
+       cloud_publish =rt_thread_create("cloud",cloud_publish_entry, NULL, 4096,16,50);
+       if (cloud_publish != RT_NULL)
+                  {
+                     rt_thread_startup(cloud_publish);
+                  }
+
+       threshold_judgment =rt_thread_create("alarm",threshold_judgment_entry, NULL,4096,16,50);
+       if (threshold_judgment != RT_NULL)
+                  {
+                     rt_thread_startup(threshold_judgment);
+                  }
+//       modbus_sendcmd = rt_thread_create("JTH-2D1",read_data_entry,NULL,512,16,10);
+//        if (modbus_sendcmd != RT_NULL)
+//                   {
+//                       rt_thread_startup(modbus_sendcmd);
+//                   }
+//       int i[5];
+//       size_t len;
+//       i[0]=ef_get_env_blob("key", NULL, 0, &len);
+//       while(1)
+//       {
+//       rt_thread_mdelay(1000);
+//       i[0]= i[0]+1;
+//       rt_kprintf(" i=%d",i[0]);
+//       ef_set_env_blob("key",&i, 1);
+//       }
+
+
+           /* 从环境变量中获取启动次数 */
+/*           c_old_boot_times = ef_get_env("boot_times");
+           i_boot_times = atol(c_old_boot_times);
+          while(1)
+          {
+          rt_thread_mdelay(1000);
+          i_boot_times++;
+          rt_kprintf(" i=%d",i_boot_times);
+          sprintf(c_new_boot_times, "%d", i_boot_times);
+           ef_set_env("boot_times", c_new_boot_times);
+           ef_save_env();
+          }*/
+//           /* 获取启动次数是否失败 */
+//           if (c_old_boot_times == RT_NULL)
+//           {
+//               c_old_boot_times[0] = '0';
+//               rt_kprintf(c_new_boot_times, "%d", i_boot_times);
+//           }
+//
+//
+//           i_boot_times = atol(c_old_boot_times);
+//           /* 启动次数加 1 */
+//           i_boot_times++;
+//           LOG_D("===============================================");
+//           LOG_D("The system now boot %d times", i_boot_times);
+//           LOG_D("===============================================");
+//           /* 数字转字符串 */
+//           sprintf(c_new_boot_times, "%d", i_boot_times);
+           /* 保存开机次数的值 */
+//           ef_set_env("boot_times", c_new_boot_times);
+//           ef_save_env();
+    return RT_EOK;
+}
+
+int uart3init(void)
+{
+    rt_err_t ret = 0;
+            u3_dev=rt_device_find("uart3");
+            if (u3_dev == RT_NULL)
+                    {
+                        LOG_E("rt_device_find[uart3] failed...\n");
+                        return -EINVAL;
+                    }
+            ret=rt_device_open(u3_dev, RT_DEVICE_OFLAG_RDWR|RT_DEVICE_FLAG_DMA_RX);
+            if(ret <0)
+            {
+                LOG_E("rt_device_open[uart3] failed...\n");
+                return ret;
+            }
+            rt_device_control(u3_dev, RT_DEVICE_CTRL_CONFIG, (void *)&u3_configs);
+
+            rt_device_set_rx_indicate(u3_dev,rx3_callback);
+
+            rt_sem_init(&sem,"rt_sem",0,RT_IPC_FLAG_FIFO);
+            if(ret <0)
+            {
+                LOG_E("rt_sem_init failed[%d]...\n",ret);
+                return ret;
+            }
+            return RT_EOK;
+}
+
+int uart4init(void)
+{
+    rt_err_t ret = 0;
+            u4_dev=rt_device_find("uart4");
+            if (u4_dev == RT_NULL)
+                    {
+                        LOG_E("rt_device_find[uart4] failed...\n");
+                        return -EINVAL;
+                    }
+            ret=rt_device_open(u4_dev, RT_DEVICE_OFLAG_RDWR|RT_DEVICE_FLAG_DMA_RX);
+            if(ret <0)
+            {
+                LOG_E("rt_device_open[uart4] failed...\n");
+                return ret;
+            }
+            rt_device_control(u4_dev, RT_DEVICE_CTRL_CONFIG, (void *)&u4_configs);
+
+            rt_device_set_rx_indicate(u4_dev,rx4_callback);
+
+            rt_sem_init(&sem1,"rt_sem1",0,RT_IPC_FLAG_FIFO);
+            if(ret <0)
+            {
+                LOG_E("rt_sem1_init failed[%d]...\n",ret);
+                return ret;
+            }
+            return RT_EOK;
+}
+
